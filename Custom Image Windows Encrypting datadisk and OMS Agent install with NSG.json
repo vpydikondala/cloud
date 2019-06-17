@@ -1,0 +1,293 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vmName": {
+      "type": "string",
+      "metadata": {
+        "description": "Virtual Machine Name"
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Admin username for VM"
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Admin password for VM"
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D1_v2",
+      "allowedValues": [
+        "Standard_D1_v2",
+        "Standard_D2_v2",
+        "Standard_D3_v2"
+      ],
+      "metadata": {
+        "description": "VM Size for the VM Deployment"
+      }
+    },
+    "volumeType": {
+      "type": "string",
+      "defaultValue": "Data",
+      "allowedValues": [
+        "Data",
+        "OS",
+        "All"
+      ],
+      "metadata": {
+        "description": "Type of the volume OS or Data to perform encryption operation"
+      }
+    }
+  },
+
+  "variables": {
+    "location": "[resourceGroup().location]",
+    "nicName": "[concat(parameters('vmName'), '-', 'nic')]",
+    "virtualNetworkResourceGroupName": "rg_vmTest",
+    "nsgName": "test-nsg-subnet",
+    "virtualNetworkName": "vmTestvnet",
+    "addressPrefix": "10.0.0.0/16",
+    "subnet1Name": "vtestsubnet",
+    "subnet1Prefix": "10.0.1.0/24",
+    "subnet1Ref": "[resourceId('Microsoft.Network/virtualNetworks/subnets',variables('virtualNetworkName'),variables('subnet1Name'))]",
+    "workspaceId": "2d4c69f9-b254-4da5-8920-d50ce263e742",
+    "workspacekey": "hOk6DkjaaBJ1xMORNv4f+M17wk5lBfkxWUqcv/wCs0/rkSKfUn/dypuz6P6OhO8jTUDdNpWGJi7QGM+SOFq1lA==",
+    "keyVaultName": "AIEUTKeyVault",
+    "keyVaultResourceGroup": "rg_vmTest",
+    "keyEncryptionKeyURL": "https://aieutkeyvault.vault.azure.net:443/keys/AIEUTVaultKEK/9fa1d42918eb458b97b1b1dd5e67a1f4",
+    "forceUpdateTag": "1.0",
+    "extensionName": "AzureDiskEncryption",
+    "extensionVersion": "2.2",
+    "encryptionOperation": "EnableEncryption",
+    "keyEncryptionAlgorithm": "RSA-OAEP",
+    "keyVaultResourceID": "[resourceId(variables('keyVaultResourceGroup'), 'Microsoft.KeyVault/vaults/', variables('keyVaultName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "apiVersion": "2016-03-30",
+      "location": "[variables('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnet1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('subnet1Prefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[variables('nicName')]",
+      "apiVersion": "2016-03-30",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[variables('virtualNetworkName')]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('subnet1Ref')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[parameters('vmName')]",
+      "apiVersion": "2018-06-01",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[variables('nicName')]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[parameters('vmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "osDisk": {
+            "createOption": "FromImage"
+          },
+          "ImageReference": {
+            "id": "[resourceId('Microsoft.Compute/images', 'testdoor-image-20190607142959')]"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[variables('nsgName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2018-03-01",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "BastionIR_RDP_Cust101",
+            "properties": {
+              "description": "Allows RDP From IR Bastion Host 230",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "22",
+              "sourceAddressPrefix": "52.239.137.230",
+              "destinationAddressPrefix": "10.161.92.64/29",
+              "access": "Allow",
+              "priority": 101,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "AzureFilesOutbound101",
+            "properties": {
+              "description": "Outbound to Azure Files",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "52.239.137.230",
+              "access": "Allow",
+              "priority": 101,
+              "direction": "Outbound"
+            }
+          },
+          {
+            "name": "AzureBlobOutbound",
+            "properties": {
+              "description": "Outbound to Azure Blob Storage",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "52.239.137.4",
+              "access": "Allow",
+              "priority": 105,
+              "direction": "Outbound"
+            }
+          },
+          {
+            "name": "DenyOutbound",
+            "properties": {
+              "description": "Deny All Outbound",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "*",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Deny",
+              "priority": 110,
+              "direction": "Outbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2017-08-01",
+      "name": "apply-nsg-to-subnet",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[variables('virtualNetworkResourceGroupName')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "resources": [
+            {
+              "apiVersion": "2018-03-01",
+              "type": "Microsoft.Network/virtualNetworks/subnets",
+              "name": "[concat(variables('virtualNetworkName'), '/', variables('subnet1Name'))]",
+              "location": "[resourceGroup().location]",
+              "properties": {
+                "addressPrefix": "[reference(resourceId(variables('virtualNetworkResourceGroupName'), 'Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('subnet1Name')), '2018-03-01').addressPrefix]",
+                "networkSecurityGroup": {
+                  "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "name": "[concat(parameters('vmName'),'/','OMSExtension')]",
+      "apiVersion": "2018-06-01",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[concat('Microsoft.Compute/virtualMachines/', parameters('vmName'))]"
+      ],
+      "properties": {
+        "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+        "type": "MicrosoftMonitoringAgent",
+        "typeHandlerVersion": "1.0",
+        "autoUpgradeMinorVersion": true,
+        "settings": {
+          "workspaceId": "[variables('workspaceId')]"
+        },
+        "protectedSettings": {
+          "workspaceKey": "[variables('workspacekey')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "name": "[concat(parameters('vmName'),'/', variables('extensionName'))]",
+      "location": "[variables('location')]",
+      "apiVersion": "2017-03-30",
+      "dependsOn": [
+        "[concat('Microsoft.Compute/virtualMachines/', parameters('vmName'))]",
+        "[concat('Microsoft.Compute/virtualMachines/', parameters('vmName'), '/extensions/','/', 'OMSExtension')]"
+      ],
+      "properties": {
+        "publisher": "Microsoft.Azure.Security",
+        "type": "[variables('extensionName')]",
+        "typeHandlerVersion": "[variables('extensionVersion')]",
+        "autoUpgradeMinorVersion": true,
+        "forceUpdateTag": "[variables('forceUpdateTag')]",
+        "settings": {
+          "EncryptionOperation": "[variables('encryptionOperation')]",
+          "KeyVaultURL": "[reference(variables('keyVaultResourceId'),'2016-10-01').vaultUri]",
+          "KeyVaultResourceId": "[variables('keyVaultResourceID')]",
+          "KeyEncryptionKeyURL": "[variables('keyEncryptionKeyURL')]",
+          "KekVaultResourceId": "[if(empty(variables('keyEncryptionKeyURL')),'',variables('keyVaultResourceID'))]",
+          "KeyEncryptionAlgorithm": "[variables('keyEncryptionAlgorithm')]",
+          "VolumeType": "[parameters('volumeType')]"
+        }
+      }
+    }
+  ]
+}
