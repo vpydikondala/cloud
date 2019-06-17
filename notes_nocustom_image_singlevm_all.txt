@@ -1,0 +1,7 @@
+This ARM Template encrypt both the OS and Datadisk at the time of creating a VM by installing the OMS Agent and custom script.
+
+1. templateok_nocustomimage_singlevm_ext&encryptvariables_Windows_v1.json - updated from the BAE template, but issue with the keys, do not take multiple keys (it seems), need a single key
+
+2. templateok_nocustomimage_singlevm_ext&encryptvariables_Windows_v2.json - It works with the key is provided directly, however BAE says it is not advisable for the keys to be exposed directly on files - works fine
+
+3.templateok_nocustomimage_singlevm_ext&encryptvariables_Windows_v3.json - it works fine by changing the following instead of "storageAccountKey": "[listKeys(variables('accountid'),'2019-04-01').keys] , use "storageAccountKey": "[listKeys(variables('accountid'),'2019-04-01').keys[0].value]"
